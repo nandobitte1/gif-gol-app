@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criador de GIFs de Gols</title>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 2.5rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        p {
+            color: #718096;
+            margin-bottom: 2rem;
+        }
+        input[type="file"] {
+            border: 2px solid #e2e8f0;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background-color: #fafafa;
+            width: 100%;
+            cursor: pointer;
+            box-sizing: border-box;
+            margin-bottom: 1rem;
+        }
+        .video-player {
+            position: relative;
+            width: 100%;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: #e2e8f0;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            margin-top: 1rem;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .control-group label {
+            font-weight: 600;
+            color: #4a5568;
+            margin-right: 1rem;
+        }
+        .control-group input[type="range"] {
+            flex-grow: 1;
+        }
+        .time-display {
+            font-size: 1rem;
+            width: 60px;
+            text-align: right;
+        }
+        button {
+            background-color: #48bb78;
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #38a169;
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background-color: #a0aec0;
+            cursor: not-allowed;
+        }
+        .output-container {
+            margin-top: 2rem;
+            text-align: center;
+            position: relative;
+            min-height: 100px;
+        }
+        .output-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #message-box {
+            margin-top: 1rem;
+            color: #ef4444;
+            font-weight: bold;
+        }
+        #loading-message {
+            font-weight: 600;
+            color: #48bb78;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Criador de GIFs de Gols</h1>
+        <p>Faça o upload de um vídeo, corte a parte do gol e crie um GIF instantaneamente!</p>
+        <input type="file" id="video-input" accept="video/*" />
+        
+        <div class="video-player">
+            <video id="video-preview" controls muted style="display:none;"></video>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="start-slider">Início:</label>
+                <input type="range" id="start-slider" min="0" value="0" step="0.1" disabled>
+                <span id="start-time-display" class="time-display">0.0s</span>
+            </div>
+            <div class="control-group">
+                <label for="end-slider">Fim:</label>
+                <input type="range" id="end-slider" min="0" value="0" step="0.1" disabled>
+                <span id="end-time-display" class="time-display">0.0s</span>
+            </div>
+        </div>
+
+        <button id="create-gif-button" disabled>Criar GIF</button>
+        
+        <div class="output-container">
+            <div id="loading-message"></div>
+            <img id="gif-output" alt="GIF do gol" style="display:none;" />
+            <div id="message-box"></div>
+        </div>
+    </div>
+    <script>
+        const videoInput = document.getElementById('video-input');
+        const videoPreview = document.getElementById('video-preview');
+        const startSlider = document.getElementById('start-slider');
+        const endSlider = document.getElementById('end-slider');
+        const startTimeDisplay = document.getElementById('start-time-display');
+        const endTimeDisplay = document.getElementById('end-time-display');
+        const createGifButton = document.getElementById('create-gif-button');
+        const loadingMessage = document.getElementById('loading-message');
+        const gifOutput = document.getElementById('gif-output');
+        const messageBox = document.getElementById('message-box');
+
+        function showMessage(message, isError = false) {
+            messageBox.innerText = message;
+            messageBox.style.color = isError ? '#ef4444' : '#48bb78';
+        }
+
+        videoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const videoURL = URL.createObjectURL(file);
+                videoPreview.src = videoURL;
+                videoPreview.style.display = 'block';
+                createGifButton.disabled = false;
+                showMessage("");
+
+                videoPreview.addEventListener('loadedmetadata', () => {
+                    const duration = videoPreview.duration;
+                    startSlider.max = duration;
+                    endSlider.max = duration;
+                    endSlider.value = duration;
+                    startSlider.disabled = false;
+                    endSlider.disabled = false;
+                    updateTimeDisplays();
+                }, { once: true });
+            }
+        });
+
+        startSlider.addEventListener('input', () => {
+            if (startSlider.value > endSlider.value) {
+                endSlider.value = startSlider.value;
+            }
+            videoPreview.currentTime = startSlider.value;
+            updateTimeDisplays();
+        });
+
+        endSlider.addEventListener('input', () => {
+             if (endSlider.value < startSlider.value) {
+                startSlider.value = endSlider.value;
+            }
+            videoPreview.currentTime = endSlider.value;
+            updateTimeDisplays();
+        });
+
+        function updateTimeDisplays() {
+            startTimeDisplay.innerText = `${parseFloat(startSlider.value).toFixed(1)}s`;
+            endTimeDisplay.innerText = `${parseFloat(endSlider.value).toFixed(1)}s`;
+        }
+
+        createGifButton.addEventListener('click', createGif);
+
+        async function createGif() {
+            const file = videoInput.files[0];
+            const startTime = startSlider.value;
+            const endTime = endSlider.value;
+            const duration = endTime - startTime;
+
+            if (!file || duration <= 0) {
+                showMessage("Por favor, selecione um vídeo e defina um intervalo válido.", true);
+                return;
+            }
+
+            loadingMessage.innerText = "Enviando vídeo para o servidor...";
+            gifOutput.style.display = 'none';
+            showMessage("");
+
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                formData.append('startTime', startTime);
+                formData.append('duration', duration);
+
+                const response = await fetch('/.netlify/functions/create-gif', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Erro do servidor: ${response.statusText}`);
+                }
+
+                const blob = await response.blob();
+                const gifUrl = URL.createObjectURL(blob);
+                gifOutput.src = gifUrl;
+                gifOutput.style.display = 'block';
+
+                showMessage("GIF criado com sucesso!", false);
+            } catch (error) {
+                console.error("Ocorreu um erro durante o processamento:", error);
+                showMessage("Ocorreu um erro. Por favor, tente novamente.", true);
+            } finally {
+                loadingMessage.innerText = "";
+            }
+        }
+    </script>
+</body>
+</html>

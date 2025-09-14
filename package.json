@@ -1,0 +1,16 @@
+{
+"name": "gif-gol-app",
+"version": "1.0.0",
+"description": "App para criar GIFs de gols",
+"main": "netlify/functions/create-gif.js",
+"scripts": {
+"start": "netlify dev"
+},
+"keywords": [],
+"author": "",
+"license": "ISC",
+"dependencies": {
+"fluent-ffmpeg": "^2.1.2",
+"ffmpeg-static": "^5.2.0"
+}
+}
