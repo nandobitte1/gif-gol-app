@@ -1,7 +1,6 @@
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const Busboy = require('busboy');
-const { Writable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 
@@ -16,12 +15,23 @@ exports.handler = async (event) => {
   return new Promise((resolve, reject) => {
     const busboy = new Busboy({ headers: event.headers });
     let fields = {};
-    let videoStream;
-    let tempGifPath;
+    let uploadPath;
+    let gifPath;
 
     busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
       console.log(`Recebendo arquivo: ${filename} (${mimetype})`);
-      videoStream = file;
+
+      // caminho temporário de entrada e saída
+      uploadPath = path.join('/tmp', `${Date.now()}_${filename}`);
+      gifPath = path.join('/tmp', `${Date.now()}_output.gif`);
+
+      const writeStream = fs.createWriteStream(uploadPath);
+      file.pipe(writeStream);
+
+      writeStream.on('error', (err) => {
+        console.error('Erro ao gravar arquivo temporário:', err.message);
+        reject({ statusCode: 500, body: `Erro ao gravar o vídeo: ${err.message}` });
+      });
     });
 
     busboy.on('field', (fieldname, val) => {
@@ -29,7 +39,7 @@ exports.handler = async (event) => {
     });
 
     busboy.on('finish', () => {
-      if (!videoStream) {
+      if (!uploadPath || !fs.existsSync(uploadPath)) {
         return resolve({
           statusCode: 400,
           body: JSON.stringify({ error: 'Nenhum arquivo de vídeo recebido.' }),
@@ -37,27 +47,26 @@ exports.handler = async (event) => {
       }
 
       const { startTime, duration } = fields;
-      console.log(`Iniciando conversão: tempo de início=${startTime}, duração=${duration}`);
-      
-      tempGifPath = path.join('/tmp', 'output.gif');
-      
+      console.log(`Iniciando conversão: start=${startTime}, duração=${duration}`);
+
       try {
-        const command = ffmpeg(videoStream)
-          .inputFormat('mp4')
+        ffmpeg(uploadPath)
           .setStartTime(parseFloat(startTime))
           .setDuration(parseFloat(duration))
           .outputOptions([
             '-vf', 'fps=10,scale=320:-1:flags=lanczos',
-            '-c:v', 'gif',
-            '-q:v', '2',
             '-f', 'gif'
           ])
           .on('end', () => {
-            console.log('Conversão do FFmpeg concluída.');
+            console.log('Conversão concluída.');
+
             try {
-              const gifBuffer = fs.readFileSync(tempGifPath);
-              console.log('GIF lido com sucesso. Enviando resposta...');
-              fs.unlinkSync(tempGifPath);
+              const gifBuffer = fs.readFileSync(gifPath);
+
+              // limpeza de arquivos temporários
+              fs.unlinkSync(uploadPath);
+              fs.unlinkSync(gifPath);
+
               resolve({
                 statusCode: 200,
                 headers: { 'Content-Type': 'image/gif' },
@@ -65,24 +74,28 @@ exports.handler = async (event) => {
                 isBase64Encoded: true,
               });
             } catch (e) {
-              console.error('Erro ao ler ou limpar o arquivo:', e.message);
+              console.error('Erro ao ler/limpar o GIF:', e.message);
               reject({ statusCode: 500, body: `Erro ao ler o GIF: ${e.message}` });
             }
           })
           .on('error', (err) => {
             console.error('Erro no FFmpeg:', err.message);
-            if (fs.existsSync(tempGifPath)) {
-              fs.unlinkSync(tempGifPath);
-            }
+            if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
+            if (fs.existsSync(gifPath)) fs.unlinkSync(gifPath);
             reject({ statusCode: 500, body: `Erro durante a conversão: ${err.message}` });
           })
-          .save(tempGifPath);
+          .save(gifPath);
       } catch (e) {
         console.error('Erro ao iniciar o FFmpeg:', e.message);
         reject({ statusCode: 500, body: `Erro ao iniciar o processamento: ${e.message}` });
       }
     });
 
-    busboy.end(event.body);
+    // 🔑 Decodificação correta do body
+    const body = event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64')
+      : event.body;
+
+    busboy.end(body);
   });
 };
