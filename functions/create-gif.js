@@ -7,6 +7,10 @@ const fs = require('fs');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 exports.handler = async (event) => {
+  console.log(">>> Função chamada");
+  console.log("Método:", event.httpMethod, "isBase64Encoded:", event.isBase64Encoded);
+  console.log("Headers:", event.headers);
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -16,7 +20,9 @@ exports.handler = async (event) => {
     const fields = {};
     let uploadPath, gifPath;
 
-    busboy.on('file', (fieldname, file, filename) => {
+    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+      console.log("Recebendo arquivo:", filename, "mimetype:", mimetype);
+
       uploadPath = path.join('/tmp', `${Date.now()}_${filename}`);
       gifPath = path.join('/tmp', `${Date.now()}_out.gif`);
 
@@ -24,21 +30,24 @@ exports.handler = async (event) => {
       file.pipe(writeStream);
 
       writeStream.on('finish', () => {
+        console.log("Arquivo salvo em:", uploadPath);
+        console.log("Campos recebidos:", fields);
+
         const start = parseFloat(fields.startTime) || 0;
         const duration = parseFloat(fields.duration) || 5;
+        console.log(`Iniciando ffmpeg com start=${start}, duration=${duration}`);
 
         ffmpeg(uploadPath)
           .setStartTime(start)
           .setDuration(duration)
-          .outputOptions([
-            '-vf', 'fps=10,scale=320:-1:flags=lanczos',
-            '-f', 'gif'
-          ])
+          .outputOptions(['-vf', 'fps=10,scale=320:-1:flags=lanczos', '-f', 'gif'])
+          .on('start', (cmd) => console.log("FFmpeg iniciado:", cmd))
+          .on('stderr', (line) => console.log("FFmpeg STDERR:", line))
           .on('end', () => {
+            console.log("FFmpeg terminou OK, lendo GIF...");
+
             try {
               const gifBuffer = fs.readFileSync(gifPath);
-
-              // limpar arquivos temporários
               fs.unlinkSync(uploadPath);
               fs.unlinkSync(gifPath);
 
@@ -49,14 +58,20 @@ exports.handler = async (event) => {
                 isBase64Encoded: true
               });
             } catch (err) {
-              resolve({ statusCode: 500, body: `Erro ao ler GIF: ${err.message}` });
+              console.error("Erro ao ler GIF:", err);
+              resolve({ statusCode: 500, body: "Erro ao ler GIF: " + err.message });
             }
           })
           .on('error', (err) => {
-            console.error('FFmpeg error:', err.message);
-            resolve({ statusCode: 500, body: `Erro FFmpeg: ${err.message}` });
+            console.error("Erro no FFmpeg:", err);
+            resolve({ statusCode: 500, body: "Erro FFmpeg: " + err.message });
           })
           .save(gifPath);
+      });
+
+      writeStream.on('error', (err) => {
+        console.error("Erro ao salvar arquivo temporário:", err);
+        resolve({ statusCode: 500, body: "Erro ao salvar arquivo: " + err.message });
       });
     });
 
@@ -65,14 +80,15 @@ exports.handler = async (event) => {
     });
 
     busboy.on('error', (err) => {
-      console.error('Busboy error:', err.message);
-      resolve({ statusCode: 500, body: `Erro upload: ${err.message}` });
+      console.error("Erro no Busboy:", err);
+      resolve({ statusCode: 500, body: "Erro no Busboy: " + err.message });
     });
 
     const body = event.isBase64Encoded
       ? Buffer.from(event.body, 'base64')
       : Buffer.from(event.body, 'utf8');
 
+    console.log("Tamanho do body recebido:", body.length);
     busboy.end(body);
   });
 };
