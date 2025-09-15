@@ -44,26 +44,17 @@ exports.handler = async (event) => {
 
               resolve({
                 statusCode: 200,
-                headers: {
-                  'Content-Type': 'image/gif',
-                  'Cache-Control': 'no-cache'
-                },
-                body: gifBuffer.toString('binary'),
-                isBase64Encoded: false
+                headers: { 'Content-Type': 'image/gif' },
+                body: gifBuffer.toString('base64'),
+                isBase64Encoded: true
               });
             } catch (err) {
-              resolve({
-                statusCode: 500,
-                body: `Erro ao ler GIF: ${err.message}`
-              });
+              resolve({ statusCode: 500, body: `Erro ao ler GIF: ${err.message}` });
             }
           })
           .on('error', (err) => {
             console.error('FFmpeg error:', err.message);
-            resolve({
-              statusCode: 500,
-              body: `Erro FFmpeg: ${err.message}`
-            });
+            resolve({ statusCode: 500, body: `Erro FFmpeg: ${err.message}` });
           })
           .save(gifPath);
       });
@@ -78,7 +69,6 @@ exports.handler = async (event) => {
       resolve({ statusCode: 500, body: `Erro upload: ${err.message}` });
     });
 
-    // decodificar corretamente o body
     const body = event.isBase64Encoded
       ? Buffer.from(event.body, 'base64')
       : Buffer.from(event.body, 'utf8');
