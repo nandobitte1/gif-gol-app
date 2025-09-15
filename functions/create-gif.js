@@ -1,27 +1,13 @@
-const { initializeApp } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const Busboy = require('busboy');
+const { Writable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { Readable } = require('stream');
 
 ffmpeg.setFfmpegPath(ffmpegPath);
-
-// Configurar o Firebase Admin
-if (process.env.FIREBASE_CONFIG) {
-    initializeApp({
-        credential: require("firebase-admin/credential").cert(JSON.parse(Buffer.from(process.env.FIREBASE_CONFIG, 'base64').toString('utf-8'))),
-        databaseURL: `https://${process.env.GCLOUD_PROJECT}.firebaseio.com`
-    });
-} else {
-    // Caso o FIREBASE_CONFIG não esteja disponível (por exemplo, em desenvolvimento local)
-    console.warn("FIREBASE_CONFIG não encontrado. O aplicativo não terá acesso ao Firestore.");
-}
-
-const db = getFirestore();
 
 exports.handler = async (event) => {
     console.log('--- Função de conversão iniciada (streaming) ---');
@@ -87,14 +73,14 @@ exports.handler = async (event) => {
                 const gifBuffer = fs.readFileSync(tempGifPath);
 
                 // Salvar o GIF no Firestore
-                const docRef = await db.collection('gifs').add({
-                    title: title,
-                    gifBase64: gifBuffer.toString('base64'),
-                    createdAt: new Date(),
-                    userId: userId
-                });
+                // const docRef = await db.collection('gifs').add({
+                //     title: title,
+                //     gifBase64: gifBuffer.toString('base64'),
+                //     createdAt: new Date(),
+                //     userId: userId
+                // });
 
-                console.log('GIF salvo no Firestore com ID:', docRef.id);
+                // console.log('GIF salvo no Firestore com ID:', docRef.id);
 
                 // Limpar arquivos temporários
                 fs.unlinkSync(tempFilePath);
@@ -102,7 +88,7 @@ exports.handler = async (event) => {
 
                 resolve({
                     statusCode: 200,
-                    body: JSON.stringify({ message: 'GIF criado e salvo com sucesso!', gifId: docRef.id }),
+                    body: JSON.stringify({ message: 'GIF criado e salvo com sucesso!' }),
                     headers: { 'Content-Type': 'application/json' },
                 });
 

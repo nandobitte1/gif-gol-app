@@ -106,7 +106,7 @@
             margin-top: 2rem;
             text-align: center;
             position: relative;
-            min-height: 100px; /* Space for spinner */
+            min-height: 100px;
         }
         .output-container img {
             max-width: 100%;
@@ -171,15 +171,6 @@
         videoInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                // Limite de 25MB para o Netlify Functions
-                const MAX_FILE_SIZE_MB = 25;
-                if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-                    errorMessage.innerText = `O vídeo é muito grande. O limite é ${MAX_FILE_SIZE_MB} MB.`;
-                    videoPreview.style.display = 'none';
-                    createGifButton.disabled = true;
-                    return;
-                }
-
                 const videoURL = URL.createObjectURL(file);
                 videoPreview.src = videoURL;
                 videoPreview.style.display = 'block';
