@@ -6,7 +6,7 @@
     <title>Criador de GIFs de Gols</title>
     <style>
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: sans-serif;
             background-color: #f0f4f8;
             color: #333;
             display: flex;
@@ -167,49 +167,53 @@
         const gifOutput = document.getElementById('gif-output');
         const errorMessage = document.getElementById('error-message');
 
-        // Handler para o upload do vídeo
+        const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+
         videoInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) {
-                const videoURL = URL.createObjectURL(file);
-                videoPreview.src = videoURL;
-                videoPreview.style.display = 'block';
-                createGifButton.disabled = false;
-                
-                // Quando o vídeo está carregado, atualiza os sliders
-                videoPreview.addEventListener('loadedmetadata', () => {
-                    const duration = videoPreview.duration;
-                    startSlider.max = duration;
-                    endSlider.max = duration;
-                    endSlider.value = duration;
-
-                    startSlider.disabled = false;
-                    endSlider.disabled = false;
-                    
-                    updateTimeDisplays();
-                }, { once: true });
+            if (!file) {
+                return;
             }
+
+            if (file.size > MAX_FILE_SIZE) {
+                errorMessage.innerText = "Erro: o arquivo é maior que 25 MB. Por favor, selecione um vídeo menor.";
+                createGifButton.disabled = true;
+                return;
+            }
+
+            const videoURL = URL.createObjectURL(file);
+            videoPreview.src = videoURL;
+            videoPreview.style.display = 'block';
+            createGifButton.disabled = false;
+            
+            videoPreview.addEventListener('loadedmetadata', () => {
+                const duration = videoPreview.duration;
+                startSlider.max = duration;
+                endSlider.max = duration;
+                endSlider.value = duration;
+
+                startSlider.disabled = false;
+                endSlider.disabled = false;
+                
+                updateTimeDisplays();
+            }, { once: true });
         });
 
-        // Sincroniza a pré-visualização com o slider de início
         startSlider.addEventListener('input', () => {
             videoPreview.currentTime = startSlider.value;
             updateTimeDisplays();
         });
 
-        // Sincroniza a pré-visualização com o slider de fim
         endSlider.addEventListener('input', () => {
             videoPreview.currentTime = endSlider.value;
             updateTimeDisplays();
         });
 
-        // Exibe os tempos de início e fim formatados
         function updateTimeDisplays() {
             startTimeDisplay.innerText = `${parseFloat(startSlider.value).toFixed(1)}s`;
             endTimeDisplay.innerText = `${parseFloat(endSlider.value).toFixed(1)}s`;
         }
 
-        // Botão para criar o GIF
         createGifButton.addEventListener('click', createGif);
 
         async function createGif() {
