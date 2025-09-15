@@ -1,88 +1,128 @@
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const Busboy = require('busboy');
-const { Writable } = require('stream');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { Readable } = require('stream');
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// Configurar o Firebase Admin
+if (process.env.FIREBASE_CONFIG) {
+    initializeApp({
+        credential: require("firebase-admin/credential").cert(JSON.parse(Buffer.from(process.env.FIREBASE_CONFIG, 'base64').toString('utf-8'))),
+        databaseURL: `https://${process.env.GCLOUD_PROJECT}.firebaseio.com`
+    });
+} else {
+    // Caso o FIREBASE_CONFIG não esteja disponível (por exemplo, em desenvolvimento local)
+    console.warn("FIREBASE_CONFIG não encontrado. O aplicativo não terá acesso ao Firestore.");
+}
+
+const db = getFirestore();
+
 exports.handler = async (event) => {
-  console.log('--- Função de conversão iniciada (streaming) ---');
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
-  }
+    console.log('--- Função de conversão iniciada (streaming) ---');
+    if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, body: 'Method Not Allowed' };
+    }
 
-  return new Promise((resolve, reject) => {
-    const busboy = new Busboy({ headers: event.headers });
-    let fields = {};
-    let videoStream;
-    let tempGifPath;
+    return new Promise((resolve, reject) => {
+        const busboy = new Busboy({ headers: event.headers, highWaterMark: 10 * 1024 * 1024 }); // 10MB
+        let fields = {};
+        let fileWriteStream;
+        let tempFilePath;
 
-    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
-      console.log(`Recebendo arquivo: ${filename} (${mimetype})`);
-      videoStream = file;
-    });
-
-    busboy.on('field', (fieldname, val) => {
-      fields[fieldname] = val;
-    });
-
-    busboy.on('finish', () => {
-      if (!videoStream) {
-        return resolve({
-          statusCode: 400,
-          body: JSON.stringify({ error: 'Nenhum arquivo de vídeo recebido.' }),
+        busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+            console.log(`Recebendo arquivo: ${filename} (${mimetype})`);
+            const fileExtension = path.extname(filename);
+            tempFilePath = path.join(os.tmpdir(), `input-${Date.now()}${fileExtension}`);
+            fileWriteStream = fs.createWriteStream(tempFilePath);
+            file.pipe(fileWriteStream);
         });
-      }
 
-      const { startTime, duration } = fields;
-      console.log(`Iniciando conversão: tempo de início=${startTime}, duração=${duration}`);
-      
-      tempGifPath = path.join('/tmp', 'output.gif');
-      
-      try {
-        const command = ffmpeg(videoStream)
-          .inputFormat('mp4')
-          .setStartTime(parseFloat(startTime))
-          .setDuration(parseFloat(duration))
-          .outputOptions([
-            '-vf', 'fps=10,scale=320:-1:flags=lanczos',
-            '-c:v', 'gif',
-            '-q:v', '2',
-            '-f', 'gif'
-          ])
-          .on('end', () => {
-            console.log('Conversão do FFmpeg concluída.');
+        busboy.on('field', (fieldname, val) => {
+            fields[fieldname] = val;
+        });
+
+        busboy.on('finish', async () => {
+            if (!tempFilePath) {
+                return resolve({
+                    statusCode: 400,
+                    body: JSON.stringify({ error: 'Nenhum arquivo de vídeo recebido.' }),
+                });
+            }
+
+            const { startTime, duration, userId } = fields;
+            const newDuration = parseFloat(duration) - parseFloat(startTime);
+            const title = fields.title || 'GIF de Gol';
+
+            console.log(`Iniciando conversão: tempo de início=${startTime}, duração=${newDuration}`);
+
+            const tempGifPath = path.join(os.tmpdir(), `output-${Date.now()}.gif`);
+
             try {
-              const gifBuffer = fs.readFileSync(tempGifPath);
-              console.log('GIF lido com sucesso. Enviando resposta...');
-              fs.unlinkSync(tempGifPath);
-              resolve({
-                statusCode: 200,
-                headers: { 'Content-Type': 'image/gif' },
-                body: gifBuffer.toString('base64'),
-                isBase64Encoded: true,
-              });
-            } catch (e) {
-              console.error('Erro ao ler ou limpar o arquivo:', e.message);
-              reject({ statusCode: 500, body: `Erro ao ler o GIF: ${e.message}` });
-            }
-          })
-          .on('error', (err) => {
-            console.error('Erro no FFmpeg:', err.message);
-            if (fs.existsSync(tempGifPath)) {
-              fs.unlinkSync(tempGifPath);
-            }
-            reject({ statusCode: 500, body: `Erro durante a conversão: ${err.message}` });
-          })
-          .save(tempGifPath);
-      } catch (e) {
-        console.error('Erro ao iniciar o FFmpeg:', e.message);
-        reject({ statusCode: 500, body: `Erro ao iniciar o processamento: ${e.message}` });
-      }
-    });
+                await new Promise((resolveConvert, rejectConvert) => {
+                    ffmpeg(tempFilePath)
+                        .setStartTime(parseFloat(startTime))
+                        .setDuration(newDuration)
+                        .outputOptions([
+                            '-vf', 'fps=10,scale=320:-1:flags=lanczos',
+                            '-q:v', '2',
+                            '-f', 'gif'
+                        ])
+                        .on('end', () => {
+                            console.log('Conversão do FFmpeg concluída.');
+                            resolveConvert();
+                        })
+                        .on('error', (err) => {
+                            console.error('Erro no FFmpeg:', err.message);
+                            rejectConvert(new Error(`Erro durante a conversão: ${err.message}`));
+                        })
+                        .save(tempGifPath);
+                });
 
-    busboy.end(event.body);
-  });
+                const gifBuffer = fs.readFileSync(tempGifPath);
+
+                // Salvar o GIF no Firestore
+                const docRef = await db.collection('gifs').add({
+                    title: title,
+                    gifBase64: gifBuffer.toString('base64'),
+                    createdAt: new Date(),
+                    userId: userId
+                });
+
+                console.log('GIF salvo no Firestore com ID:', docRef.id);
+
+                // Limpar arquivos temporários
+                fs.unlinkSync(tempFilePath);
+                fs.unlinkSync(tempGifPath);
+
+                resolve({
+                    statusCode: 200,
+                    body: JSON.stringify({ message: 'GIF criado e salvo com sucesso!', gifId: docRef.id }),
+                    headers: { 'Content-Type': 'application/json' },
+                });
+
+            } catch (e) {
+                console.error('Erro ao processar o arquivo:', e.message);
+                
+                // Limpar arquivos temporários em caso de erro
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(tempGifPath)) fs.unlinkSync(tempGifPath);
+                
+                reject({ statusCode: 500, body: `Erro ao processar o vídeo: ${e.message}` });
+            }
+        });
+
+        const writableStream = new Writable({
+            write(chunk, encoding, callback) {
+                busboy.write(chunk, encoding, callback);
+            }
+        });
+
+        Readable.from(event.body).pipe(writableStream);
+    });
 };
