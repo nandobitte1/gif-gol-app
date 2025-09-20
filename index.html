@@ -238,28 +238,28 @@
             formData.append('duration', duration);
 
             try {
-                const response = await fetch('/.netlify/functions/create-gif', {
-                    method: 'POST',
-                    body: formData,
-                });
+    const response = await fetch('/.netlify/functions/create-gif', {
+        method: 'POST',
+        body: formData,
+    });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(errorText);
-                }
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText);
+    }
 
-                const gifBlob = await response.blob();
-                const gifUrl = URL.createObjectURL(gifBlob);
-                gifOutput.src = gifUrl;
-                gifOutput.style.display = 'block';
+    const gifBase64 = await response.text();
+    gifOutput.src = `data:image/gif;base64,${gifBase64}`;
+    gifOutput.style.display = 'block';
 
-            } catch (error) {
-                console.error("Ocorreu um erro:", error);
-                errorMessage.innerText = `Ocorreu um erro: ${error.message}. Por favor, tente novamente.`;
-            } finally {
-                loadingMessage.innerText = "";
-                createGifButton.disabled = false;
-            }
+} catch (error) {
+    console.error("Ocorreu um erro:", error);
+    errorMessage.innerText = `Ocorreu um erro: ${error.message}. Por favor, tente novamente.`;
+} finally {
+    loadingMessage.innerText = "";
+    createGifButton.disabled = false;
+}
+
         }
     </script>
 </body>
