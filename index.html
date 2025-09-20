@@ -121,7 +121,7 @@
             formData.append('duration', duration);
 
             try {
-                const response = await fetch('/.netlify/functions/create_gif', { // URL corrigida aqui
+                const response = await fetch('/.netlify/functions/creategif', { // URL corrigida aqui
                     method: 'POST',
                     body: formData,
                 });
