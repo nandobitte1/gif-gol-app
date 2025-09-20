@@ -1,20 +1,17 @@
 const Busboy = require('busboy');
 const ffmpeg = require('fluent-ffmpeg');
-const fs = require('fs');
+const { createReadStream, createWriteStream } = require('fs');
+const { promisify } = require('util');
+const { pipeline } = require('stream');
 const path = require('path');
 const os = require('os');
-const { promisify } = require('util');
+const fs = require('fs');
 
-const writeFileAsync = promisify(fs.writeFile);
-const readFileAsync = promisify(fs.readFile);
-const unlinkAsync = promisify(fs.unlink);
+const pipelineAsync = promisify(pipeline);
 
+// Local do binário do FFmpeg (necessário para o Netlify)
 const ffmpegPath = require('ffmpeg-static');
-if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
-} else {
-    console.error('ffmpeg-static could not find FFmpeg binary.');
-}
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
@@ -38,11 +35,12 @@ exports.handler = async (event) => {
         }
     });
 
-    let videoFileBuffer = null;
-    let startTime = null;
-    let duration = null;
+    let videoFileBuffer;
+    let startTime;
+    let duration;
 
-    const filePromise = new Promise((resolve, reject) => {
+    // Processa os campos do formulário
+    const fieldsPromise = new Promise((resolve) => {
         busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
             if (fieldname === 'video') {
                 const chunks = [];
@@ -52,7 +50,6 @@ exports.handler = async (event) => {
                 file.on('end', () => {
                     videoFileBuffer = Buffer.concat(chunks);
                 });
-                file.on('error', (err) => reject(err));
             }
         });
 
@@ -69,36 +66,33 @@ exports.handler = async (event) => {
             resolve();
         });
 
-        busboy.on('error', (err) => reject(err));
-
-        try {
-            busboy.end(Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'binary'));
-        } catch (e) {
-            reject(e);
-        }
+        busboy.end(Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'binary'));
     });
 
+    await fieldsPromise;
+
+    if (!videoFileBuffer || !startTime || !duration) {
+        return {
+            statusCode: 400,
+            body: 'Missing video file or time parameters.'
+        };
+    }
+
+    const tempDir = os.tmpdir();
+    const inputFilePath = path.join(tempDir, 'input.mp4');
+    const outputFilePath = path.join(tempDir, 'output.gif');
+
     try {
-        await filePromise;
+        // Salva o buffer do vídeo em um arquivo temporário
+        await promisify(fs.writeFile)(inputFilePath, videoFileBuffer);
 
-        if (!videoFileBuffer || startTime === null || duration === null) {
-            return {
-                statusCode: 400,
-                body: 'Missing video file or time parameters.'
-            };
-        }
-
-        const inputFilePath = path.join(os.tmpdir(), 'input.mp4');
-        const outputFilePath = path.join(os.tmpdir(), 'output.gif');
-
-        await writeFileAsync(inputFilePath, videoFileBuffer);
-
+        // Promessa para processar o vídeo com FFmpeg
         await new Promise((resolve, reject) => {
             ffmpeg(inputFilePath)
                 .seekInput(startTime)
                 .duration(duration)
                 .outputOptions([
-                    '-vf', 'fps=10,scale=320:-1:flags=lanczos'
+                    '-vf', 'fps=10,scale=320:-1:flags=lanczos' // Filtros para otimizar o GIF
                 ])
                 .on('end', () => {
                     resolve();
@@ -110,7 +104,8 @@ exports.handler = async (event) => {
                 .save(outputFilePath);
         });
 
-        const gifBuffer = await readFileAsync(outputFilePath);
+        // Lê o GIF gerado e o retorna como base64
+        const gifBuffer = await promisify(fs.readFile)(outputFilePath);
 
         return {
             statusCode: 200,
@@ -128,7 +123,8 @@ exports.handler = async (event) => {
             body: `Internal Server Error: ${error.message}`
         };
     } finally {
-        if (fs.existsSync(inputFilePath)) await unlinkAsync(inputFilePath).catch(e => console.error("Error unlinking input file:", e));
-        if (fs.existsSync(outputFilePath)) await unlinkAsync(outputFilePath).catch(e => console.error("Error unlinking output file:", e));
+        // Limpa os arquivos temporários
+        if (fs.existsSync(inputFilePath)) fs.unlinkSync(inputFilePath);
+        if (fs.existsSync(outputFilePath)) fs.unlinkSync(outputFilePath);
     }
 };

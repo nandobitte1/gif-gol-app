@@ -35,91 +35,41 @@
             color: #718096;
             margin-bottom: 2rem;
         }
-        input[type="file"] {
-            border: 2px solid #e2e8f0;
+        input[type="file"], input[type="number"], button {
+            width: 100%;
             padding: 1rem;
-            border-radius: 0.75rem;
-            background-color: #fafafa;
-            width: 100%;
-            cursor: pointer;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #cbd5e0;
             box-sizing: border-box;
-            margin-bottom: 1rem;
-        }
-        .video-player {
-            position: relative;
-            width: 100%;
-            margin-top: 1.5rem;
-            margin-bottom: 1rem;
-        }
-        video {
-            width: 100%;
-            height: auto;
-            border-radius: 1rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .controls {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-            margin-top: 1rem;
-        }
-        .control-group {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1rem;
-        }
-        .control-group label {
-            font-weight: 600;
-            color: #4a5568;
-            margin-right: 1rem;
-        }
-        .control-group input[type="range"] {
-            flex-grow: 1;
-        }
-        .time-display {
             font-size: 1rem;
-            width: 60px;
-            text-align: right;
         }
         button {
-            background-color: #48bb78;
+            background-color: #4a5568;
             color: white;
-            padding: 1rem 2rem;
             border: none;
-            border-radius: 0.75rem;
-            font-size: 1.25rem;
-            font-weight: 700;
             cursor: pointer;
-            transition: background-color 0.3s, transform 0.2s;
-            width: 100%;
+            transition: background-color 0.3s ease;
         }
-        button:hover {
-            background-color: #38a169;
-            transform: translateY(-2px);
+        button:hover:not(:disabled) {
+            background-color: #2d3748;
         }
         button:disabled {
             background-color: #a0aec0;
             cursor: not-allowed;
         }
-        .output-container {
-            margin-top: 2rem;
-            text-align: center;
-            position: relative;
-            min-height: 100px;
-        }
-        .output-container img {
+        img {
             max-width: 100%;
-            height: auto;
-            border-radius: 1rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            display: none;
         }
-        #loading-message {
-            font-weight: 600;
-            color: #48bb78;
+        .message {
+            margin-top: 1rem;
+            font-weight: bold;
         }
         .error-message {
-            font-weight: 600;
             color: #e53e3e;
         }
     </style>
@@ -127,102 +77,35 @@
 <body>
     <div class="container">
         <h1>Criador de GIFs de Gols</h1>
-        <p>Faça o upload de um vídeo, corte a parte do gol e crie um GIF instantaneamente!</p>
-        <input type="file" id="video-input" accept="video/*" />
-        
-        <div class="video-player">
-            <video id="video-preview" controls muted></video>
-        </div>
-
-        <div class="controls">
-            <div class="control-group">
-                <label for="start-slider">Início:</label>
-                <input type="range" id="start-slider" min="0" value="0" step="0.1" disabled>
-                <span id="start-time-display" class="time-display">0.0s</span>
-            </div>
-            <div class="control-group">
-                <label for="end-slider">Fim:</label>
-                <input type="range" id="end-slider" min="0" value="0" step="0.1" disabled>
-                <span id="end-time-display" class="time-display">0.0s</span>
-            </div>
-        </div>
-
-        <button id="create-gif-button" disabled>Criar GIF</button>
-        
-        <div class="output-container">
-            <div id="loading-message"></div>
-            <img id="gif-output" alt="GIF do gol" style="display:none;" />
-            <div id="error-message" class="error-message"></div>
-        </div>
+        <p>Selecione um vídeo e defina o tempo de início e duração para criar seu GIF!</p>
+        <input type="file" id="videoInput" accept="video/mp4,video/quicktime">
+        <input type="number" id="startTimeInput" placeholder="Tempo de Início (em segundos)" min="0">
+        <input type="number" id="durationInput" placeholder="Duração do GIF (em segundos)" min="0" max="10">
+        <button id="createGifButton">Criar GIF</button>
+        <div id="loadingMessage" class="message"></div>
+        <div id="errorMessage" class="message error-message"></div>
+        <img id="gifOutput" src="" alt="GIF de Gol">
     </div>
+
     <script>
-        const videoInput = document.getElementById('video-input');
-        const videoPreview = document.getElementById('video-preview');
-        const startSlider = document.getElementById('start-slider');
-        const endSlider = document.getElementById('end-slider');
-        const startTimeDisplay = document.getElementById('start-time-display');
-        const endTimeDisplay = document.getElementById('end-time-display');
-        const createGifButton = document.getElementById('create-gif-button');
-        const loadingMessage = document.getElementById('loading-message');
-        const gifOutput = document.getElementById('gif-output');
-        const errorMessage = document.getElementById('error-message');
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoInput = document.getElementById('videoInput');
+            const startTimeInput = document.getElementById('startTimeInput');
+            const durationInput = document.getElementById('durationInput');
+            const createGifButton = document.getElementById('createGifButton');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const errorMessage = document.getElementById('errorMessage');
+            const gifOutput = document.getElementById('gifOutput');
 
-        const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-
-        videoInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) {
-                return;
-            }
-
-            if (file.size > MAX_FILE_SIZE) {
-                errorMessage.innerText = "Erro: o arquivo é maior que 25 MB. Por favor, selecione um vídeo menor.";
-                createGifButton.disabled = true;
-                return;
-            }
-
-            const videoURL = URL.createObjectURL(file);
-            videoPreview.src = videoURL;
-            videoPreview.style.display = 'block';
-            createGifButton.disabled = false;
-            
-            videoPreview.addEventListener('loadedmetadata', () => {
-                const duration = videoPreview.duration;
-                startSlider.max = duration;
-                endSlider.max = duration;
-                endSlider.value = duration;
-
-                startSlider.disabled = false;
-                endSlider.disabled = false;
-                
-                updateTimeDisplays();
-            }, { once: true });
+            createGifButton.addEventListener('click', createGif);
         });
-
-        startSlider.addEventListener('input', () => {
-            videoPreview.currentTime = startSlider.value;
-            updateTimeDisplays();
-        });
-
-        endSlider.addEventListener('input', () => {
-            videoPreview.currentTime = endSlider.value;
-            updateTimeDisplays();
-        });
-
-        function updateTimeDisplays() {
-            startTimeDisplay.innerText = `${parseFloat(startSlider.value).toFixed(1)}s`;
-            endTimeDisplay.innerText = `${parseFloat(endSlider.value).toFixed(1)}s`;
-        }
-
-        createGifButton.addEventListener('click', createGif);
 
         async function createGif() {
             const file = videoInput.files[0];
-            const startTime = startSlider.value;
-            const endTime = endSlider.value;
-            const duration = endTime - startTime;
+            const startTime = startTimeInput.value;
+            const duration = durationInput.value;
 
-            if (!file || duration <= 0) {
+            if (!file || !startTime || !duration) {
                 errorMessage.innerText = "Por favor, selecione um vídeo e defina um intervalo válido.";
                 return;
             }
@@ -238,28 +121,27 @@
             formData.append('duration', duration);
 
             try {
-    const response = await fetch('/.netlify/functions/create-gif', {
-        method: 'POST',
-        body: formData,
-    });
+                const response = await fetch('/.netlify/functions/create_gif', { // URL corrigida aqui
+                    method: 'POST',
+                    body: formData,
+                });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText);
-    }
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText);
+                }
 
-    const gifBase64 = await response.text();
-    gifOutput.src = `data:image/gif;base64,${gifBase64}`;
-    gifOutput.style.display = 'block';
+                const gifBase64 = await response.text();
+                gifOutput.src = `data:image/gif;base64,${gifBase64}`;
+                gifOutput.style.display = 'block';
 
-} catch (error) {
-    console.error("Ocorreu um erro:", error);
-    errorMessage.innerText = `Ocorreu um erro: ${error.message}. Por favor, tente novamente.`;
-} finally {
-    loadingMessage.innerText = "";
-    createGifButton.disabled = false;
-}
-
+            } catch (error) {
+                console.error("Ocorreu um erro:", error);
+                errorMessage.innerText = `Ocorreu um erro: ${error.message}. Por favor, tente novamente.`;
+            } finally {
+                loadingMessage.innerText = "";
+                createGifButton.disabled = false;
+            }
         }
     </script>
 </body>
