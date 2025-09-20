@@ -121,7 +121,8 @@
             formData.append('duration', duration);
 
             try {
-                const response = await fetch('/.netlify/functions/create_gif', { // URL corrigida aqui
+                // A URL foi corrigida para corresponder ao nome da função
+                const response = await fetch('/.netlify/functions/creategif', {
                     method: 'POST',
                     body: formData,
                 });
@@ -131,6 +132,7 @@
                     throw new Error(errorText);
                 }
 
+                // O código foi corrigido para usar a string base64, que a função Netlify retorna
                 const gifBase64 = await response.text();
                 gifOutput.src = `data:image/gif;base64,${gifBase64}`;
                 gifOutput.style.display = 'block';
